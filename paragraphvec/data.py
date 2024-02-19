@@ -14,6 +14,7 @@ from numpy.random import choice
 
 from torchtext.vocab import build_vocab_from_iterator
 from collections import Counter
+import string
 
 
 def _tokenize_str(str_):
@@ -50,8 +51,12 @@ def getTokens(data_iter):
 
 
 class datasetClass():
-    def __init__(self, data_pipe):
-        self.data_pipe = data_pipe
+    def __init__(self, data_pipe_complete, data_pipe_batch=None):
+        self.data_pipe = data_pipe_complete
+
+        self.max_sentence_length = 0
+        self.average_sentence_length = 0
+        self.number_of_sentences = 0
 
         self.lines = []
         self.vocab = None
@@ -64,7 +69,7 @@ class datasetClass():
         """
 
         source_vocab = build_vocab_from_iterator(
-            getTokens(self.data_pipe),
+            self.getTokens(),
             min_freq=2,
             specials=['<pad>', '<sos>', '<eos>', '<unk>'],
             special_first=True
@@ -77,12 +82,35 @@ class datasetClass():
 
         # Expand the list self.lines with the contents of the file tokenized
 
-        for line in self.data_pipe:
-            words = _tokenize_str(line[0])
-            self.lines.append(_tokenize_str(line[0]))
-            self.counter.update(words)
-
         self.length = len(self.lines)
+
+    def getTokens(self):
+        """
+        Function to yield tokens from an iterator. Since, our iterator contains
+        tuple of sentences (source and target), `place` parameters defines for which
+        index to return the tokens for. `place=0` for source and `place=1` for target
+        """
+        for sentences in self.data_pipe:
+
+            # relevant_substring = sentences.split("kernel:")[1]
+            relevant_substring = sentences[47::]
+
+            self.average_sentence_length = (self.average_sentence_length * self.number_of_sentences +
+                                            len(relevant_substring)) / (self.number_of_sentences + 1)
+
+            self.number_of_sentences += 1
+
+            if len(relevant_substring) > self.max_sentence_length:
+                self.max_sentence_length = len(relevant_substring)
+                print(f"max_sentence_length: {self.max_sentence_length} relevant_substring: {relevant_substring}")
+
+            relevant_tokens = _tokenize_str_no_punctuations(relevant_substring)
+
+            # Update counter for probability distribution
+            self.counter.update(relevant_tokens)
+            self.lines.append(relevant_tokens)
+
+            yield relevant_tokens
 
 
 class NCEData(object):
