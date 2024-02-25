@@ -1,7 +1,5 @@
-import torchdata.datapipes as dp
 import multiprocessing
 import os
-import re
 import signal
 from math import ceil
 from os.path import join
@@ -9,108 +7,6 @@ from os.path import join
 import numpy as np
 import torch
 from numpy.random import choice
-# from torchtext.data import Field, TabularDataset
-
-
-from torchtext.vocab import build_vocab_from_iterator
-from collections import Counter
-import string
-
-
-def _tokenize_str(str_):
-    # keep only alphanumeric and punctations
-    str_ = re.sub(r'[^A-Za-z0-9(),.!?\'`]', ' ', str_)
-    # remove multiple whitespace characters
-    str_ = re.sub(r'\s{2,}', ' ', str_)
-    # punctations to tokens
-    str_ = re.sub(r'\(', ' ( ', str_)
-    str_ = re.sub(r'\)', ' ) ', str_)
-    str_ = re.sub(r',', ' , ', str_)
-    str_ = re.sub(r'\.', ' . ', str_)
-    str_ = re.sub(r'!', ' ! ', str_)
-    str_ = re.sub(r'\?', ' ? ', str_)
-    # split contractions into multiple tokens
-    str_ = re.sub(r'\'s', ' \'s', str_)
-    str_ = re.sub(r'\'ve', ' \'ve', str_)
-    str_ = re.sub(r'n\'t', ' n\'t', str_)
-    str_ = re.sub(r'\'re', ' \'re', str_)
-    str_ = re.sub(r'\'d', ' \'d', str_)
-    str_ = re.sub(r'\'ll', ' \'ll', str_)
-    # lower case
-    return str_.strip().lower().split()
-
-
-def getTokens(data_iter):
-    """
-    Function to yield tokens from an iterator. Since, our iterator contains
-    tuple of sentences (source and target), `place` parameters defines for which
-    index to return the tokens for. `place=0` for source and `place=1` for target
-    """
-    for sentences in data_iter:
-        yield _tokenize_str(sentences[0])
-
-
-class datasetClass():
-    def __init__(self, data_pipe_complete, data_pipe_batch=None):
-        self.data_pipe = data_pipe_complete
-
-        self.max_sentence_length = 0
-        self.average_sentence_length = 0
-        self.number_of_sentences = 0
-
-        self.lines = []
-        self.vocab = None
-        self.length = 0
-        self.counter = Counter()
-
-    def load_dataset(self):
-        """Loads contents from a file in the *data* directory into a
-        torchtext.data.TabularDataset instance.
-        """
-
-        source_vocab = build_vocab_from_iterator(
-            self.getTokens(),
-            min_freq=2,
-            specials=['<pad>', '<sos>', '<eos>', '<unk>'],
-            special_first=True
-        )
-        source_vocab.set_default_index(source_vocab['<unk>'])
-
-        self.vocab = source_vocab
-        # print(self.vocab)
-        # print(f"type of self.vocab: {type(self.vocab)}")
-
-        # Expand the list self.lines with the contents of the file tokenized
-
-        self.length = len(self.lines)
-
-    def getTokens(self):
-        """
-        Function to yield tokens from an iterator. Since, our iterator contains
-        tuple of sentences (source and target), `place` parameters defines for which
-        index to return the tokens for. `place=0` for source and `place=1` for target
-        """
-        for sentences in self.data_pipe:
-
-            # relevant_substring = sentences.split("kernel:")[1]
-            relevant_substring = sentences[47::]
-
-            self.average_sentence_length = (self.average_sentence_length * self.number_of_sentences +
-                                            len(relevant_substring)) / (self.number_of_sentences + 1)
-
-            self.number_of_sentences += 1
-
-            if len(relevant_substring) > self.max_sentence_length:
-                self.max_sentence_length = len(relevant_substring)
-                print(f"max_sentence_length: {self.max_sentence_length} relevant_substring: {relevant_substring}")
-
-            relevant_tokens = _tokenize_str_no_punctuations(relevant_substring)
-
-            # Update counter for probability distribution
-            self.counter.update(relevant_tokens)
-            self.lines.append(relevant_tokens)
-
-            yield relevant_tokens
 
 
 class NCEData(object):
