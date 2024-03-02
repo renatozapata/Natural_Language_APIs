@@ -15,10 +15,14 @@ class NCEData(object):
 
     Parameters
     ----------
-    dataset: torchtext.data.TabularDataset
-        Dataset from which examples are generated. A column labeled *text*
-        is expected and should be comprised of a list of tokens. Each row
-        should represent a single document.
+    vocab_object: torchtext.vocab.Vocab
+        Vocabulary object.
+
+    counter_object: collections.Counter
+        Counter object related to the vocabulary object.
+
+    datapipe_object: any 
+        Any datapipe which can be iterated over to yield sentences
 
     batch_size: int
         Number of examples per single gradient update.
@@ -39,16 +43,9 @@ class NCEData(object):
     """
     # code inspired by parallel generators in https://github.com/fchollet/keras
 
-    def __init__(self, dataset, batch_size, context_size,
+    def __init__(self, vocab_object, counter_object, datapipe_object, batch_size, context_size,
                  num_noise_words, max_size, num_workers):
         self.max_size = max_size
-
-        # print(" dataset type is {}".format(type(dataset)))
-        # print(" batch_size is {}".format(batch_size))
-        # print(" context_size is {}".format(context_size))
-        # print(" num_noise_words is {}".format(num_noise_words))
-        # print(" max_size is {}".format(max_size))
-        # print(" num_workers is {}".format(num_workers))
 
         self.num_workers = num_workers if num_workers != -1 else os.cpu_count()
         if self.num_workers is None:
@@ -58,7 +55,7 @@ class NCEData(object):
         # print(f"os.cpu_count() {os.cpu_count()}")
 
         self._generator = _NCEGenerator(
-            dataset,
+            vocab_object, counter_object, datapipe_object,
             batch_size,
             context_size,
             num_noise_words,
@@ -132,17 +129,22 @@ class _NCEGenerator(object):
     For other parameters see the NCEData class.
     """
 
-    def __init__(self, dataset, batch_size, context_size,
+    def __init__(self, vocab_object, counter_object, datapipe_object, batch_size, context_size,
                  num_noise_words, state):
-        self.dataset = dataset
+        self.dataset = datapipe_object
+        self.counter = counter_object
         self.batch_size = batch_size
         self.context_size = context_size
         self.num_noise_words = num_noise_words
 
-        self._vocabulary = self.dataset.vocab
+        self._vocabulary = vocab_object
         self._sample_noise = None
         self._init_noise_distribution()
         self._state = state
+
+        dataset_copy = self.dataset  # Copying self.dataset
+        # Getting self.num_examples once
+        self.num_examples = sum(self._num_examples_in_doc(d) for d in dataset_copy)
 
     def _init_noise_distribution(self):
         # we use a unigram distribution raised to the 3/4rd power,
@@ -150,31 +152,17 @@ class _NCEGenerator(object):
         # of Words and Phrases and their Compositionality
         probs = np.zeros(len(self._vocabulary) - 1)
 
-        for word, freq in self.dataset.counter.items():
+        for word, freq in self.counter.items():
             probs[self._word_to_index(word)] = freq
-
-        # print("type of probs is {}".format(type(probs)))
-        # print("probs is {}".format(probs))
-        # print(f"self.dataset.counter: {self.dataset.counter}")
 
         probs = np.power(probs, 0.75)
         probs /= np.sum(probs)
 
-        # print("type of probs is {}".format(type(probs)))
-        # print("probs is {}".format(probs))
-
         self._sample_noise = lambda: choice(
             probs.shape[0], self.num_noise_words, p=probs).tolist()
 
-        # print("type of self._sample_noise is {}".format(type(self._sample_noise)))
-        # print("type of self.num_noise_words is {}".format(type(self.num_noise_words)))
-        # print("type of self._vocabulary is {}".format(type(self._vocabulary)))
-        # print("type of self._vocabulary.freqs is {}".format(type(self._vocabulary.freqs)))
-        # print("type of self._vocabulary.freqs.items() is {}".format(type(self._vocabulary.freqs.items())))
-
     def __len__(self):
-        num_examples = sum(self._num_examples_in_doc(d) for d in self.dataset.lines)
-        return ceil(num_examples / self.batch_size)
+        return ceil(self.num_examples / self.batch_size)
 
     def vocabulary_size(self):
         return len(self._vocabulary) - 1
@@ -198,6 +186,7 @@ class _NCEGenerator(object):
                 return batch
             if prev_in_doc_pos <= (len(self.dataset.lines[prev_doc_id]) - 1
                                    - self.context_size):
+
                 # more examples in the current document
                 self._add_example_to_batch(prev_doc_id, prev_in_doc_pos, batch)
                 prev_in_doc_pos += 1
@@ -263,15 +252,7 @@ class _NCEGeneratorState(object):
                      context_size, num_examples_in_doc):
         """Returns current indices and computes new indices for the
         next process."""
-        # Print type and value of every argument
-        # print("type of dataset is {}".format(type(dataset)))
-        # print("type of batch_size is {}".format(type(batch_size)))
-        # print("type of context_size is {}".format(type(context_size)))
-        # print("type of num_examples_in_doc is {}".format(type(num_examples_in_doc)))
-        # print("dataset is {}".format(dataset))
-        # print("batch_size is {}".format(batch_size))
-        # print("context_size is {}".format(context_size))
-        # print("num_examples_in_doc is {}".format(num_examples_in_doc))
+
         with self._lock:
             doc_id = self._doc_id.value
             in_doc_pos = self._in_doc_pos.value

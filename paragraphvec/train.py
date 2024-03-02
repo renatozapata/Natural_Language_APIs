@@ -9,6 +9,8 @@ import datetime
 from torch.optim import Adam
 import sys
 import csv
+from collections import Counter
+from torchtext.vocab import Vocab
 sys.path.append(".")
 import torchdata.datapipes as dp  # noqa: E402
 from paragraphvec.utils import save_training_state  # noqa: E402
@@ -16,54 +18,13 @@ from paragraphvec.models import DM, DBOW  # noqa: E402
 from paragraphvec.loss import NegativeSampling  # noqa: E402
 from paragraphvec.data import NCEData, datasetClass  # noqa: E402
 
-FILE_LIST = 'csv_files.csv'
-entries = []
-
-with open(FILE_LIST, 'r') as file:
-    reader = csv.reader(file)
-    headers = next(reader)  # Skip the headers
-    for row in reader:
-        entries.append(row[0])
-
-# print(entries)
-
-# Custom DataPipe to handle gzip decompression
-
-
-class GzFileLoader:
-    def __init__(self, file_paths):
-        self.average_line_length = 0
-        self.number_of_lines = 0
-        self.max_line_length = 0
-        self.file_paths = file_paths
-
-    def __iter__(self):
-        file_counter = 0
-        for file_path in self.file_paths:
-
-            file_counter += 1
-            print(
-                f"Processing file {file_counter}/{len(self.file_paths)} average line length: {self.average_line_length} max line length: {self.max_line_length} number of lines: {self.number_of_lines}")
-            try:
-                with gzip.open(file_path, 'rt') as f:
-                    for line in f:
-                        rstripped_line = line.rstrip()
-                        self.average_line_length = ((self.average_line_length * self.number_of_lines) +
-                                                    len(rstripped_line[47::])) / (self.number_of_lines + 1)
-
-                        if len(rstripped_line[47::]) > self.max_line_length:
-                            self.max_line_length = len(rstripped_line[47::])
-                        self.number_of_lines += 1
-                        yield rstripped_line
-            except Exception as e:
-                print(f"Exception: {e}, File Path: {file_path}")
-                continue
-
-
-data_pipe = GzFileLoader(entries)
-
 
 def start(data_file_name,
+
+          vocab_object,
+          counter_object,
+          datapipe_object,
+
           num_noise_words,
           vec_dim,
           num_epochs,
@@ -83,6 +44,13 @@ def start(data_file_name,
     ----------
     data_file_name: str
         Name of a file in the *data* directory.
+
+    vocab_object: Vocab
+        Vocab object of type torchtext.vocab.Vocab
+    counter_object: Counter
+        Counter object of type collections.Counter
+    datapipe_object:
+        data_pipe object should have a __iter__ yielding sentences 
 
     model_ver: str, one of ('dm', 'dbow'), default='dbow'
         Version of the model as proposed by Q. V. Le et al., Distributed
@@ -130,10 +98,28 @@ def start(data_file_name,
         Number of batch generator jobs to run in parallel. If value is set
         to -1 number of machine cores are used.
     """
+
+    # Dataset checks
+    if vocab_object is None:
+        raise ValueError("Vocab object is required")
+    if not isinstance(vocab_object, Vocab):
+        raise ValueError("Invalid type of vocab object")
+
+    if counter_object is None:
+        raise ValueError("Counter object is required")
+    if not isinstance(counter_object, Counter):
+        raise ValueError("Invalid type of counter object")
+
+    if datapipe_object is None:
+        raise ValueError("Data pipe object is required")
+    if not hasattr(datapipe_object, "__iter__"):
+        raise ValueError("Data pipe object must have an __iter__ method")
+
+    # Model checks
     if model_ver not in ('dm', 'dbow'):
         raise ValueError("Invalid version of the model")
 
-    model_ver_is_dbow = model_ver == 'dbow'
+    model_ver_is_dbow = (model_ver == 'dbow')
 
     if model_ver_is_dbow and context_size != 0:
         raise ValueError("Context size has to be zero when using dbow")
@@ -143,10 +129,11 @@ def start(data_file_name,
                              "vectors when using dm")
         if context_size <= 0:
             raise ValueError("Context size must be positive when using dm")
-    dataset = datasetClass(data_pipe)
-    dataset.load_dataset()
+
     nce_data = NCEData(
-        dataset,
+        vocab_object,
+        counter_object,
+        datapipe_object,
         batch_size,
         context_size,
         num_noise_words,
