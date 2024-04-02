@@ -97,7 +97,26 @@ def start(data_file_name,
     num_workers: int, default=1
         Number of batch generator jobs to run in parallel. If value is set
         to -1 number of machine cores are used.
-    """
+    #########################################################
+    # TODO: Make this interface better
+    # Load a pickle file for vocab and counter
+    with open(f"{vocab_and_counter_object_file_name}.pkl", 'rb') as f:
+        vocab_object, counter_object = pickle.load(f)
+
+    # Load a pickle file for data_pipe
+    print(f"datapipe_file_name: {datapipe_file_name}")
+    # ...
+
+    # Load a CSV file for data_pipe
+    files_list = []
+    with open(datapipe_file_name, 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        csv_reader.__next__()  # Skip the header
+        for row in csv_reader:
+            files_list.append(row[0])
+
+    datapipe_object = GzFileLoader(files_list)
+    #########################################################
 
     # Dataset checks
     if vocab_object is None:
