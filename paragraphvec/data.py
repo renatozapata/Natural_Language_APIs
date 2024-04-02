@@ -3,7 +3,7 @@ import os
 import signal
 from math import ceil
 from os.path import join
-
+import time
 import numpy as np
 import torch
 from numpy.random import choice
@@ -50,9 +50,6 @@ class NCEData(object):
         self.num_workers = num_workers if num_workers != -1 else os.cpu_count()
         if self.num_workers is None:
             self.num_workers = 1
-
-        # print(f"num of workers: {self.num_workers}")
-        # print(f"os.cpu_count() {os.cpu_count()}")
 
         self._generator = _NCEGenerator(
             vocab_object, counter_object, datapipe_object,
@@ -136,6 +133,7 @@ class _NCEGenerator(object):
         self.batch_size = batch_size
         self.context_size = context_size
         self.num_noise_words = num_noise_words
+        self.length = 0
 
         self._vocabulary = vocab_object
         self._sample_noise = None
@@ -143,8 +141,18 @@ class _NCEGenerator(object):
         self._state = state
 
         dataset_copy = self.dataset  # Copying self.dataset
+
         # Getting self.num_examples once
-        self.num_examples = sum(self._num_examples_in_doc(d) for d in dataset_copy)
+
+        # Even for very large files, iterating and opening constantly is fast.
+        start_time = time.time()
+        self.num_examples = sum(self._num_examples_in_doc(d) for d in self.dataset)
+        print(f"Time taken to calculate num_examples: {time.time() - start_time}")
+        print(f"num_examples: {self.num_examples}")
+        print(type(dataset_copy))
+
+        # Start pro-actively caching the dataset
+        self.dataset.caching_thread.start()
 
     def _init_noise_distribution(self):
         # we use a unigram distribution raised to the 3/4rd power,
@@ -184,7 +192,7 @@ class _NCEGenerator(object):
                 # last document exhausted
                 batch.torch_()
                 return batch
-            if prev_in_doc_pos <= (len(self.dataset.lines[prev_doc_id]) - 1
+            if prev_in_doc_pos <= (len(self.dataset(prev_doc_id)) - 1
                                    - self.context_size):
 
                 # more examples in the current document
@@ -199,7 +207,7 @@ class _NCEGenerator(object):
         return batch
 
     def _num_examples_in_doc(self, doc, in_doc_pos=None):
-
+        # print(f"doc: {doc}")
         if in_doc_pos is not None:
             # number of remaining
             if len(doc) - in_doc_pos >= self.context_size + 1:
@@ -208,11 +216,12 @@ class _NCEGenerator(object):
 
         if len(doc) >= 2 * self.context_size + 1:
             # total number
+            self.length += 1
             return len(doc) - 2 * self.context_size
         return 0
 
     def _add_example_to_batch(self, doc_id, in_doc_pos, batch):
-        doc = self.dataset.lines[doc_id]
+        doc = self.dataset(doc_id)
         batch.doc_ids.append(doc_id)
 
         # sample from the noise distribution
@@ -263,7 +272,7 @@ class _NCEGeneratorState(object):
     def _advance_indices(self, dataset, batch_size,
                          context_size, num_examples_in_doc):
         num_examples = num_examples_in_doc(
-            dataset.lines[self._doc_id.value], self._in_doc_pos.value)
+            dataset(self._doc_id.value), self._in_doc_pos.value)
 
         if num_examples > batch_size:
             # more examples in the current document
@@ -288,9 +297,9 @@ class _NCEGeneratorState(object):
 
             self._doc_id.value += 1
             num_examples += num_examples_in_doc(
-                dataset.lines[self._doc_id.value])
+                dataset(self._doc_id.value))
 
-        self._in_doc_pos.value = (len(dataset.lines[self._doc_id.value])
+        self._in_doc_pos.value = (len(dataset(self._doc_id.value))
                                   - context_size
                                   - (num_examples - batch_size))
 
