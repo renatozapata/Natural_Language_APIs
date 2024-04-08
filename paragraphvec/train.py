@@ -2,7 +2,7 @@
 import os
 import pickle
 import time
-from sys import float_info, stdout
+from sys import stdout
 import gzip
 import fire
 import torch
@@ -17,7 +17,6 @@ import threading
 import time
 from collections import OrderedDict
 sys.path.append(".")
-import torchdata.datapipes as dp  # noqa: E402
 from paragraphvec.utils import save_training_state  # noqa: E402
 from paragraphvec.models import DM, DBOW  # noqa: E402
 from paragraphvec.loss import NegativeSampling  # noqa: E402
